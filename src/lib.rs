@@ -7,6 +7,8 @@
 // 真要收敛得改 .proto 的消息设计，而不是在生成代码里加 Box。
 #![allow(clippy::large_enum_variant)]
 
+// tonic 标记的 RPC 经 async_trait 展开后会返回已标记 must_use 的 Future。
+#[allow(clippy::double_must_use)]
 pub mod flare {
     pub mod auth_revoke {
         pub mod v1 {
