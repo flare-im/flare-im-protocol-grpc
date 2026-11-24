@@ -11,7 +11,7 @@ homepage = "https://github.com/flare-im/flare-protocol-grpc"
 documentation = "https://docs.rs/flare-grpc-proto"
 
 [dependencies]
-flare-proto = { version = "2.1.0", path = "crates/flare-proto" }
+flare-proto = { version = "2.2.0", path = "crates/flare-proto" }
 prost = "0.14"
 prost-types = "0.14"
 tonic = "0.14"
@@ -19,5 +19,9 @@ tonic-prost = "0.14"
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-flare-proto = { version = "2.1.0", path = "crates/flare-proto" }
+flare-proto = { version = "2.2.0", path = "crates/flare-proto" }
 tonic-prost-build = "0.14"
+
+[workspace]
+members = ["crates/flare-proto"]
+resolver = "3"

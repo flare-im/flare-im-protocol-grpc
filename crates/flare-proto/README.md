@@ -26,14 +26,14 @@ API documentation: [docs.rs/flare-proto](https://docs.rs/flare-proto)
 
 ```toml
 [dependencies]
-flare-proto = "2.1"
+flare-proto = "2.2"
 ```
 
 Optional feature flags are reserved for client and server integrations:
 
 ```toml
-flare-proto = { version = "2.1", features = ["client"] }
-flare-proto = { version = "2.1", features = ["server"] }
+flare-proto = { version = "2.2", features = ["client"] }
+flare-proto = { version = "2.2", features = ["server"] }
 ```
 
 ## What Is Included
@@ -119,7 +119,7 @@ The open-source Core provides messaging infrastructure. You can connect your own
 
 ## Plugin platform protocol
 
-The business-neutral `flare-plugin-protocol` crate lives in [flare-plugin-protocol](flare-plugin-protocol/README.md). Core, client SDKs and plugin hosts share its Manifest, publisher signatures, Registry, tenant grant and lifecycle contracts. It is independent of business plugin repositories and marketplace availability.
+The business-neutral `flare-plugin-protocol` crate lives in [flare-plugin-protocol](https://github.com/flare-im/flare-plugin-devkit/tree/dev/flare-plugin-protocol). Core, client SDKs and plugin hosts share its Manifest, publisher signatures, Registry, tenant grant and lifecycle contracts. It is independent of business plugin repositories and marketplace availability.
 
 ## Compatibility
 

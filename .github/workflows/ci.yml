@@ -32,25 +32,12 @@ jobs:
       - run: cargo fmt --manifest-path crates/flare-proto/Cargo.toml -- --check
       - run: cargo clippy --manifest-path crates/flare-proto/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --manifest-path crates/flare-proto/Cargo.toml
-      - run: cargo package --manifest-path crates/flare-proto/Cargo.toml
 
   check:
     name: fmt / clippy / test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # 本项目是多仓库结构，各仓的 path 依赖指向同级仓库目录。
-      # 单仓 checkout 后这些路径不存在，cargo 会直接解析失败，
-      # 所以这里按开发时的布局把依赖仓拉到同级位置。
-      - name: 拉取同级仓库
-        run: |
-          BR="${GITHUB_REF_NAME:-main}"
-          clone() {
-            git clone --depth 1 -b "$BR" "$1" "$2" 2>/dev/null \
-              || git clone --depth 1 "$1" "$2"
-          }
-          clone https://github.com/flare-im/flare-protocol.git "../flare-protocol"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -82,17 +69,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 本项目是多仓库结构，各仓的 path 依赖指向同级仓库目录。
-      # 单仓 checkout 后这些路径不存在，cargo 会直接解析失败，
-      # 所以这里按开发时的布局把依赖仓拉到同级位置。
-      - name: 拉取同级仓库
-        run: |
-          BR="${GITHUB_REF_NAME:-main}"
-          clone() {
-            git clone --depth 1 -b "$BR" "$1" "$2" 2>/dev/null \
-              || git clone --depth 1 "$1" "$2"
-          }
-          clone https://github.com/flare-im/flare-protocol.git "../flare-protocol"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -127,15 +103,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 拉取同级仓库
-        run: |
-          BR="${GITHUB_REF_NAME:-main}"
-          clone() {
-            git clone --depth 1 -b "$BR" "$1" "$2" 2>/dev/null \
-              || git clone --depth 1 "$1" "$2"
-          }
-          clone https://github.com/flare-im/flare-protocol.git "../flare-protocol"
-
       - name: 读取 Cargo.toml 声明的 MSRV
         id: msrv
         run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')" >> "$GITHUB_OUTPUT"
@@ -152,30 +119,12 @@ jobs:
       - name: cargo check（按声明的 MSRV）
         run: cargo check --all-targets
 
-  # 「外部能不能构建出来」——发布链的第二环，flare-plugin-host 要它编得过。
-  #
-  # 依赖写成 { version, path } 双声明：本地走 path，外部消费者走 registry。
-  # 同级目录一在就永远编得过,哪怕 registry 上根本没有那个版本。这类缺陷零信号,
-  # 只有真去 crates.io 拉的人撞得到,而我们正在文档里让第三方去拉。
-  #
-  # `cargo publish --dry-run` 是唯一会把 path 依赖换成 registry 版本再解析一遍的
-  # 命令。同级仓库**仍要拉**:dry-run 会做版本替换,但 cargo 得先把 path 指向的
-  # 清单读进来才能开始,缺了就失败在「No such file or directory」——那是环境缺失,
-  # 不是版本解析失败,判据形同虚设。
+  # Cargo 用本次打包的公共绑定验证 gRPC 的发布包。
   publishable:
     name: 外部能否构建
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: 拉取同级仓库
-        run: |
-          BR="${GITHUB_REF_NAME:-main}"
-          clone() {
-            git clone --depth 1 -b "$BR" "$1" "$2" 2>/dev/null \
-              || git clone --depth 1 "$1" "$2"
-          }
-          clone https://github.com/flare-im/flare-protocol.git "../flare-protocol"
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -183,8 +132,8 @@ jobs:
       - name: 安装 protoc
         run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
 
-      - name: registry 依赖可解析
-        run: cargo publish --dry-run --allow-dirty
+      - name: 验证公共绑定和 gRPC 的发布包
+        run: cargo package --workspace
 
       # 比「LICENSE 文件在不在」更强的判据：它到底有没有被打进 .crate。
       # include/exclude 写歪了就会出现「仓里有、包里没有」——而 dry-run 本身
@@ -193,9 +142,10 @@ jobs:
       - name: LICENSE 正文真的进了包
         shell: bash
         run: |
-          cargo package --list --allow-dirty | grep -qE '^LICENSE' \
-            || { echo "✗ cargo package 的清单里没有 LICENSE"; cargo package --list --allow-dirty; exit 1; }
-          echo "  ✓ LICENSE 在打包清单里"
+          for crate in flare-proto flare-grpc-proto; do
+            manifest=$(cargo package --list -p "$crate")
+            grep -qx 'LICENSE' <<< "$manifest"
+          done
 
   # 许可证口径：README 是 crates.io 页面渲染的内容，它写的许可证与 Cargo.toml
   # 声明的不一致是法务问题，不是排版问题——而且没有任何测试会碰到它。
@@ -237,7 +187,7 @@ jobs:
           exit $fail
 
       # 这里只查文件在不在——「真的进了包」是更强的判据，由 publishable job 里的
-      # cargo package --list 负责（那个 job 才有同级仓与 protoc 这些前置条件）。
+      # cargo package --list 负责（那个 job 会安装 protoc）。
       - name: crate 目录里有 LICENSE 正文
         shell: bash
         run: |

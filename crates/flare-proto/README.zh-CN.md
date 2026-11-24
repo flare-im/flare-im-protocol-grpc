@@ -42,14 +42,14 @@ API 文档：[docs.rs/flare-proto](https://docs.rs/flare-proto)
 
 ```toml
 [dependencies]
-flare-proto = "2.1"
+flare-proto = "2.2"
 ```
 
 可选的 feature 标志为客户端与服务端集成预留：
 
 ```toml
-flare-proto = { version = "2.1", features = ["client"] }
-flare-proto = { version = "2.1", features = ["server"] }
+flare-proto = { version = "2.2", features = ["client"] }
+flare-proto = { version = "2.2", features = ["server"] }
 ```
 
 ## 包含内容
@@ -141,7 +141,7 @@ let page = pagination_first(20);
 
 ## 插件平台协议
 
-通用 `flare-plugin-protocol` crate 位于 [flare-plugin-protocol](flare-plugin-protocol/README.md)。Core、客户端 SDK 与插件宿主复用 Manifest、发布者签名、Registry、租户授权与生命周期契约，不依赖业务插件仓库或市场在线。
+通用 `flare-plugin-protocol` crate 位于 [flare-plugin-protocol](https://github.com/flare-im/flare-plugin-devkit/tree/dev/flare-plugin-protocol)。Core、客户端 SDK 与插件宿主复用 Manifest、发布者签名、Registry、租户授权与生命周期契约，不依赖业务插件仓库或市场在线。
 
 ## 兼容性
 

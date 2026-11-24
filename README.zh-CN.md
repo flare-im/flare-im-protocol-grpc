@@ -60,7 +60,7 @@ flare-grpc-proto/
 - `storage_service.proto`
 - `sync_service.proto`
 
-基础类型的 `import` 由 **`flare-protocol/proto`** 提供；编译时 include 路径为「基础目录优先，再本目录」，以减少同名 import 歧义。
+基础类型的 `import` 由 **`crates/flare-proto/proto`** 中的固定快照提供；编译时 include 路径为「基础目录优先，再本目录」，以减少同名 import 歧义。
 
 ## 依赖
 
@@ -75,7 +75,12 @@ flare-grpc-proto/
 cargo build -p flare-grpc-proto
 ```
 
-修改任意 `proto/*.proto` 或 `flare-protocol/proto` 下被引用的文件后，重新构建即可触发 `build.rs` 重新生成代码。
+修改任意 `proto/*.proto` 或 `crates/flare-proto/proto` 的固定快照后，重新构建即可触发 `build.rs` 重新生成代码。
+
+## 打包
+
+`cargo package --workspace` 通过 Cargo 的临时本地 registry 一起验证两个 crate。
+发布时先发布 `flare-proto` 2.2.0，再发布 `flare-grpc-proto` 2.3.0。gRPC 使用了 2.2.0 新增的公共通知类型。
 
 ## 使用方式
 
@@ -133,3 +138,5 @@ use flare_grpc_proto::Message;      // 从 flare_proto 再导出的公共消息�
 ## 协同变更
 
 先合入 [flare-protocol](https://github.com/flare-im/flare-protocol) 的线协议变更，再生成 gRPC 绑定并校验受影响的服务端和 SDK 调用方。
+
+共享 Rust 类型由 [`flare-proto`](crates/flare-proto) 独立发布。用 `python3 scripts/sync-common-proto.py --revision <commit>` 更新公共协议快照，CI 会按记录的源码提交校验。

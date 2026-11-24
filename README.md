@@ -66,7 +66,7 @@ The files currently compiled by `build.rs` (order matters for dependency resolut
 - `storage_service.proto`
 - `sync_service.proto`
 
-The `import` statements for base types are provided by **`flare-protocol/proto`**;
+The `import` statements for base types use the pinned **`crates/flare-proto/proto`** snapshot;
 at compile time the include path is "base directory first, then this directory",
 to reduce ambiguity over identically named imports.
 
@@ -83,7 +83,13 @@ to reduce ambiguity over identically named imports.
 cargo build -p flare-grpc-proto
 ```
 
-After modifying any `proto/*.proto` or any referenced file under `flare-protocol/proto`, rebuilding will trigger `build.rs` to regenerate the code.
+After modifying any `proto/*.proto` or the pinned snapshot under `crates/flare-proto/proto`, rebuilding will trigger `build.rs` to regenerate the code.
+
+## Packaging
+
+`cargo package --workspace` verifies both crates together with Cargo's local package registry.
+Publish `flare-proto` 2.2.0 before `flare-grpc-proto` 2.3.0. The gRPC crate uses the common
+notification types first shipped in 2.2.0.
 
 ## Usage
 
