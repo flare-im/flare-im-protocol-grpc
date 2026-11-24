@@ -38,6 +38,7 @@ library to obtain each service's client / server types and message definitions.
 | Component | Description |
 |------|------|
 | **`flare-proto`** | Domain models and common types (such as `flare.common.v1`, the `Message` body, etc.) |
+| **`flare-access-contract`** | Signed access, recovery, release and trust documents, plus schema validation and verification |
 | **This crate** | The `.proto` files and compiled artifacts for each gRPC service; references the common packages in `flare_proto` via `extern_path` to avoid duplicate generation |
 
 ## Directory structure

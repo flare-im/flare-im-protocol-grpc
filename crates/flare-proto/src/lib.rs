@@ -38,6 +38,8 @@ pub mod common {
     pub use crate::flare::common::v1::*;
 }
 
+pub mod client_platform;
+
 pub use common::push_envelope;
 
 /// Convenience builders for `prost_types::Any`.

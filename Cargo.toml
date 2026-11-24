@@ -23,5 +23,5 @@ flare-proto = { version = "2.2.0", path = "crates/flare-proto" }
 tonic-prost-build = "0.14"
 
 [workspace]
-members = ["crates/flare-proto"]
+members = ["crates/flare-proto", "crates/flare-access-contract"]
 resolver = "3"
