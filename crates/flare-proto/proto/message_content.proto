@@ -1,0 +1,304 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+// MessageType 已合并到 common/message.proto；MessagePreview.type 为 int32（枚举值）以避免循环 import
+
+// Message.content 为强类型 MessageContent；message_type 须与 oneof 变体一致（见 message.proto MessageType）。
+
+message TextContent {
+  string text = 1;  // 正文；可与客户端约定内嵌 `[pack_key]`（与 EmojiContent / 本地 emoji 资源文件名一致）
+  repeated Mention mentions = 2;  // @ 提及列表（用于高亮与推送）
+}
+
+enum MentionType {
+  MENTION_TYPE_UNSPECIFIED = 0;
+  MENTION_TYPE_USER = 1;  // 单用户
+  MENTION_TYPE_ALL = 2;  // @所有人
+  MENTION_TYPE_ROLE = 3;  // 按角色
+  MENTION_TYPE_MULTI = 4;  // 多用户
+}
+
+message Mention {
+  MentionType type = 1;
+  string user_id = 2;  // 单用户时填充
+  repeated string user_ids = 3;  // 多用户时填充
+  string role_id = 4;  // 按角色时填充
+  int32 start = 10;  // 在 text 中的起始偏移（字符）
+  int32 length = 11;  // 长度（字符）
+}
+
+// 与 ImageInfo.mime_type 互补：便于路由/CDN 在未解析 MIME 时识别容器格式。
+enum ImageFormat {
+  IMAGE_FORMAT_UNSPECIFIED = 0;
+  IMAGE_FORMAT_JPEG = 1;
+  IMAGE_FORMAT_PNG = 2;
+  IMAGE_FORMAT_WEBP = 3;
+  IMAGE_FORMAT_GIF = 4;
+  IMAGE_FORMAT_APNG = 5;
+  IMAGE_FORMAT_BMP = 6;
+  IMAGE_FORMAT_HEIC = 7;
+  IMAGE_FORMAT_SVG = 8;
+}
+
+// 稳定媒体引用在 ImageInfo.image_id（原图、缩略图各自一条，便于独立鉴权与缓存）。
+message ImageContent {
+  ImageInfo source = 2;  // 原图信息
+  ImageInfo thumbnail = 3;  // 缩略图（可选，独立 image_id）；动图 GIF/APNG 常可不设
+  string description = 4;  // 图说/备注
+  // 动图时长（毫秒），可选；静态图忽略
+  optional int64 duration_ms = 5;
+}
+
+message ImageInfo {
+  string uuid = 1;
+  string url = 2;  // 短时/直链 URL（可选；持久化消息建议留空，由客户端 GetFileUrl 解析）
+  string mime_type = 3;
+  int64 size = 4;
+  int32 width = 5;
+  int32 height = 6;
+  string image_id = 7;  // 媒体存储侧稳定 id（GetFileUrl / 网关代理）；可与 uuid 同值
+  ImageFormat format = 8;  // 与 mime_type 一致时由发送端填写；未指定则接收端可仅依赖 mime_type
+  bool animated = 9;       // 是否动图（GIF/APNG/动 WebP 等）；静态图为 false
+  string blurhash = 10;    // 低清占位图 hash（可选）；由媒体处理器生成，客户端直接展示
+}
+
+message VideoContent {
+  string video_id = 1;
+  VideoInfo source = 2;
+  ImageInfo cover = 3;  // 封面图
+  string description = 4;
+}
+
+message VideoInfo {
+  string uuid = 1;
+  string url = 2;
+  string mime_type = 3;
+  int64 size = 4;
+  int64 duration_ms = 5;  // 时长（毫秒）
+  int32 width = 6;
+  int32 height = 7;
+}
+
+message AudioContent {
+  string audio_id = 1;
+  AudioInfo source = 2;
+  string description = 4;
+}
+
+message AudioInfo {
+  string uuid = 1;
+  string url = 2;
+  string mime_type = 3;
+  int64 size = 4;
+  int64 duration_ms = 5;
+}
+
+message FileContent {
+  string file_id = 1;
+  string file_name = 2;
+  string mime_type = 3;
+  int64 file_size = 4;
+  string url = 5;
+  string description = 6;
+}
+
+// 与业务层 LocationMessageContent 对齐：坐标、标题、地址、可选缩放与缩略图
+message LocationContent {
+  double longitude = 1;
+  double latitude = 2;
+  string address = 3;
+  string title = 4;  // 地点名称/标题（原 description 字段号保留，语义更名为 title）
+
+  optional int32 zoom = 6;  // 地图缩放级别，如 10–18；未设置由客户端默认
+  optional string snapshot_url = 7;  // 静态地图/截图 URL
+  optional string snapshot_local_path = 8;  // 客户端本地快照路径（多端可选）
+}
+
+// 通用名片/卡片：类型 + 业务 id + 展示字段；attributes 扩展键值
+message CardContent {
+  string id = 1;
+  string title = 2;
+  string avatar = 3;
+  string subtitle = 4;
+  map<string, string> attributes = 5;
+  string card_type = 6;  // 如 user、group
+}
+
+message StickerContent {
+  string sticker_id = 1;   // 如 cat_001
+  string url = 2;        // 贴图资源 URL
+  int32 width = 3;
+  int32 height = 4;
+  map<string, string> attributes = 5;
+  string package_id = 6; // 贴纸包 id，如 cat
+  string format = 7;     // 资源格式，如 webp、png
+}
+
+message EmojiContent {
+  string emoji = 1;  // 表情 pack key（与客户端资源 `emoji/<key>.webp` 一致，如 pensive_face）；非 Unicode
+  string description = 2;  // 可选描述/无障碍
+  map<string, string> attributes = 3;
+}
+
+message QuoteContent {
+  string quoted_message_id = 1;  // 被引用消息 id
+  string quoted_sender_id = 2;
+  string quoted_text_preview = 3;  // 被引用内容摘要（列表/搜索用）
+  MessageContent quoted_content = 4;  // 被引用内容完整结构（创建时必须写入）
+  MessageContent current_content = 5;  // 当前发送消息内容（结构化，禁止嵌套 Quote）
+}
+
+message LinkCardContent {
+  string url = 1;
+  string title = 2;
+  string description = 3;
+  string thumbnail_url = 4;
+  string site_name = 5;
+}
+
+enum ForwardMode {
+  FORWARD_MODE_UNSPECIFIED = 0;
+  FORWARD_MODE_SINGLE = 1;  // 单条转发：items 长度应为 1
+  FORWARD_MODE_MERGED = 2;  // 合并转发：items 长度 > 1（也可 1，由业务约定）
+}
+
+message ForwardItem {
+  // 来源信息（可选，用于追溯、跳转）
+  optional string source_message_id = 1;
+  optional string source_conversation_id = 2;
+  optional string source_sender_id = 3;
+  optional string source_sender_name = 4;
+  optional int64 source_message_created_at = 5;
+
+  // 快照：类型 + 摘要 + 完整 MessageContent（与 message_type 一致）
+  int32 message_type = 6;
+  string plain_text = 7;
+  MessageContent content = 8;
+}
+
+// MESSAGE_TYPE_MERGE_FORWARD + MessageContent.forward；单条/合并由 mode 与 items 表达。
+message ForwardContent {
+  ForwardMode mode = 1;
+  optional string title = 2;
+  repeated ForwardItem items = 3;
+}
+
+message ThreadContent {
+  string thread_id = 1;  // 话题 id
+  string thread_title = 2;
+  MessageContent root_content = 3;  // 根消息内容（话题入口）
+  map<string, string> attributes = 4;
+}
+
+message AppCardAction {
+  string id = 1;
+  string label = 2;
+  string action_type = 3;  // open_url | open_app | command | custom
+  string target = 4;
+  map<string, string> attributes = 50;
+}
+
+// 通用应用卡片：投票、任务、日程、公告、小程序等业务卡片均走此结构或 CustomContent。
+message AppCardContent {
+  string app_id = 1;
+  string card_type = 2;  // namespaced type, e.g. social.poll | workflow.task
+  string title = 3;
+  string subtitle = 4;
+  string summary = 5;
+  string thumbnail_url = 6;
+  string payload_schema = 7;
+  bytes payload = 8;
+  repeated AppCardAction actions = 9;
+  map<string, string> attributes = 50;
+}
+
+// 富文本：Rich Doc JSON 为唯一落库形态；plain_text 供列表/搜索/推送。
+message RichTextContent {
+  string doc_json = 1;  // Rich Doc 根节点 JSON 字符串，如 {"type":"doc","version":2,"children":[...]}
+  string content_schema = 2;  // 如 rich_doc
+  string plain_text = 3;  // 扁平纯文本（列表/推送摘要；必填）
+  optional string input_format = 4;  // rich_editor | markdown | html
+  map<string, string> source_attributes = 5;  // 可选：如 key "markdown" / "html" 存原文快照
+  optional int32 input_format_version = 6;
+  optional string title = 7;  // 文章标题；空则由客户端用正文首段/首行等兜底
+  optional string search_text = 8;
+  optional string render_hints_json = 9;
+}
+
+message ImageGroupContent {
+  repeated ImageInfo images = 1;  // 多张图片元信息
+  string description = 2;  // 图组说明（可选）
+  map<string, string> attributes = 3;
+}
+
+// System(60)：入时间线、参与 seq，event_kind 建议 domain.entity.action。
+// Notification(61)：触达型，persistent 控制落库；与 Event（信令）、EventBusEnvelope（服务间）区分。
+
+message SystemContent {
+  string event_kind = 1;  // 稳定事件键，如 group.member_joined
+  string body = 2;  // 展示文案（已渲染）
+  map<string, string> attributes = 3;  // 结构化扩展字段
+  bytes payload = 4;  // 跨版本二进制扩展
+}
+
+message NotificationContent {
+  string title = 1;
+  string body = 2;
+  string notification_type = 3;  // 业务路由键，Social 域以 social. 开头
+  map<string, string> attributes = 4;
+  repeated string target_user_ids = 10;  // 定向推送
+  string target_role_id = 11;
+  bool notify_all = 12;
+  bool persistent = 20;  // false 则仅 push、不落库
+  bool show_in_list = 21;
+  bool show_badge = 22;
+  bool play_sound = 23;
+}
+
+message CustomContent {
+  string type = 1;  // 业务类型：red_packet | transfer | check_in | vote | approval | ...
+  bytes payload = 2;  // 业务序列化载荷（JSON 或 protobuf）
+  string description = 3;  // 可选展示摘要（会话列表/搜索）
+  map<string, string> attributes = 4;
+}
+
+message PlaceholderContent {
+  string reason = 1;  // 占位原因：e2e_placeholder | decrypt_failed | external | imported | migration
+  bytes payload = 2;  // 可选密文或元数据（业务自解析）
+  string fallback_text = 3;  // 无法解析时的展示文案（如「[加密消息]」「[解密失败]」）
+  map<string, string> attributes = 4;
+}
+
+message MessagePreview {
+  string message_id = 1;
+  string sender_id = 2;
+  int32 type = 3;  // 消息类型（MessageType 枚举值，避免 import message.proto）
+  string text = 4;
+  int64 created_at = 5;
+}
+
+message MessageContent {
+  oneof content {
+    TextContent text = 1;
+    ImageContent image = 2;
+    VideoContent video = 3;
+    AudioContent audio = 4;
+    FileContent file = 5;
+    LocationContent location = 6;
+    CardContent card = 7;
+    StickerContent sticker = 8;
+    EmojiContent emoji = 9;
+    QuoteContent quote = 11;
+    LinkCardContent link_card = 12;
+    ForwardContent forward = 13;
+    ThreadContent thread = 14;
+    AppCardContent app_card = 16;
+    RichTextContent rich_text = 30;
+    ImageGroupContent image_group = 32;
+    SystemContent system = 60;
+    NotificationContent notification = 61;
+    CustomContent custom = 100;
+    PlaceholderContent placeholder = 101;
+  }
+}

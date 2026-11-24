@@ -1,0 +1,38 @@
+[package]
+name = "flare-proto"
+version = "2.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+authors = ["Flare Team"]
+license = "Apache-2.0"
+links = "flare_proto"
+description = "Flare IM gRPC Protocol Definitions - Shared protocol definitions for both client and server"
+keywords = ["protobuf", "grpc", "instant-messaging", "protocol", "contract"]
+categories = ["network-programming", "api-bindings", "encoding"]
+repository = "https://github.com/flare-im/flare-protocol-grpc"
+homepage = "https://github.com/flare-im/flare-protocol-grpc"
+documentation = "https://docs.rs/flare-proto"
+readme = "README.md"
+exclude = [
+    "target/",
+    "Cargo.lock",
+    "*.md",
+    "!README.md",
+    "!README.zh-CN.md",
+]
+
+[build-dependencies]
+prost-build = "0.14"
+protoc-bin-vendored = "3.2"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+prost = "0.14"
+prost-types = "0.14"
+
+[features]
+default = []
+server = []  # 服务端特性
+client = []  # 客户端特性

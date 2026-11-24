@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+import "errors.proto";
+
+// ACK：conversation_id + max_conversation_seq 批量确认，ack_id 幂等。上行 Send / 下行 Push 回执对称。
+
+/// 统一 ACK 结构：payload oneof 是唯一类型判别。
+message Ack {
+  optional string ack_id = 2;    // 幂等 id，可选
+  optional int64 ack_at = 3;  // 回执时间，可选，Unix epoch millis
+  oneof payload {
+    SendAck send = 10;
+    EventAck event = 11;
+    PushAck push = 12;
+    ConversationAck conversation = 13;
+    ReadAck read = 14;
+    AckBatch batch = 15;
+  }
+}
+
+// Send 侧回执（服务端→客户端）
+
+/// Send ACK 已跨过的最高可靠性边界。
+enum SendAckDurability {
+  SEND_ACK_DURABILITY_UNSPECIFIED = 0;
+  SEND_ACK_DURABILITY_TRANSIENT_ACCEPTED = 1; // 仅实时投递已接受，不承诺离线/存储恢复
+  SEND_ACK_DURABILITY_WAL_ACCEPTED = 2;       // 已写入发送侧 WAL，可由恢复任务重放
+  SEND_ACK_DURABILITY_BROKER_ACCEPTED = 3;    // 已被主消息队列接受，异步存储/推送可恢复
+  SEND_ACK_DURABILITY_PERSISTED = 4;          // 已提交存储，可立即作为查询/同步水位
+}
+
+/// 发消息回执：客户端 Send 后服务端返回，client_msg_id 对应 server_msg_id/seq，多端同步锚点。
+message SendAccepted {
+  string server_msg_id = 1;
+  uint64 conversation_seq = 2;
+  int64 server_time = 3;
+  SendAckDurability durability = 4;
+}
+
+message SendAck {
+  string client_msg_id = 1;
+  string conversation_id = 2;
+  optional string ack_id = 3;  // 幂等，服务端生成，客户端可忽略
+  oneof result {
+    SendAccepted accepted = 10;
+    ErrorDetail error = 11; // 结构化错误详情；业务拒绝原因、展示文案、追踪信息统一走这里
+  }
+}
+
+/// 操作回执：对 SendEvent（撤回/编辑等），event_id 与 Event 对应。
+message EventAck {
+  string event_id = 1;
+  map<string, string> attributes = 3;
+}
+
+/// 会话维度送达/处理回执，不表示已读。
+message ConversationAck {
+  string conversation_id = 1;
+  repeated string server_msg_ids = 2;
+  uint64 last_delivered_seq = 3;
+  map<string, string> attributes = 8;
+}
+
+/// 显式已读回执。read_seq 是当前用户在 conversation_id 内确认已读的最大 seq。
+message ReadAck {
+  string conversation_id = 1;
+  uint64 read_seq = 2;
+  optional string device_id = 3;
+  optional string ack_id = 4;
+}
+
+// Push 侧回执（客户端→服务端）
+
+/// 批确认：客户端确认已处理本批推送，window_id 与 EventEnvelope.window_id 对应。
+message PushAck {
+  string window_id = 1;
+  uint64 ack_seq = 2;
+  optional string ack_id = 3;  // 本批唯一 id，幂等去重
+  optional int64 ack_at = 4;
+  optional string device_id = 5;  // 多端区分
+  map<string, string> attributes = 6;
+}
+
+/// 批量 ACK：一次携带多类回执，减少往返（如多会话 deliver + read piggyback）。
+message AckBatch {
+  repeated PushAck push_acks = 1;
+  repeated SendAck send_acks = 2;
+  repeated ConversationAck conversation_acks = 3;
+  repeated EventAck event_acks = 4;
+  optional string device_id = 5;
+  map<string, string> attributes = 6;
+  repeated ReadAck read_acks = 7;
+}

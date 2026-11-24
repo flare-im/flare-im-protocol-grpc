@@ -1,0 +1,221 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+import "enums.proto";
+import "errors.proto";
+import "message.proto";
+import "message_content.proto";
+
+// 领域事件，会话内 seq 有序。错误走 gRPC Status + ErrorDetail；读模型见 models.proto。
+// 实时控制（typing/presence/RTC 等）走 data.proto，不占用 conversation_seq。
+
+/// 事件批（下行推送或 Sync 返回）。
+///
+/// 对大规模会话，服务端应优先发送 PING / PING_WITH_INLINE：客户端以
+/// conversation_id + max_conversation_seq 检测本地缺口，必要时再按 seq 拉取。
+message EventEnvelope {
+  repeated Event events = 1;  // 本批事件列表
+  uint64 max_conversation_seq = 2;  // 本批最大 conversation_seq
+  bool has_more = 3;  // 是否还有更多
+  string next_cursor = 4;  // 下一页游标
+  string window_id = 5;  // 窗口 ID，用于 PushAck 确认本批
+  EventEnvelopeDeliveryMode delivery_mode = 6;  // inline / ping / ping+inline
+  string conversation_id = 7;  // 单会话投递原语的会话 ID
+  uint64 min_conversation_seq = 8;  // 本批最小 conversation_seq，用于连续性校验
+  bool inline_events_truncated = 9;  // true 表示 inline 只带尾部样本，必须补拉
+  map<string, string> attributes = 10;  // 仅用于扩展，不承载稳定核心语义
+}
+
+enum EventEnvelopeDeliveryMode {
+  EVENT_ENVELOPE_DELIVERY_MODE_UNSPECIFIED = 0;
+  EVENT_ENVELOPE_DELIVERY_MODE_INLINE = 1;  // 完整内联事件批
+  EVENT_ENVELOPE_DELIVERY_MODE_PING = 2;  // 仅水位通知，客户端按需拉取
+  EVENT_ENVELOPE_DELIVERY_MODE_PING_WITH_INLINE = 3;  // 水位通知 + 小批 inline 事件
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_MESSAGE = 1;  // 新消息
+  EVENT_MESSAGE_RECALL = 2;  // 撤回消息
+  EVENT_MESSAGE_EDIT = 3;  // 编辑消息
+  EVENT_MESSAGE_DELETE = 4;  // 删除消息
+  EVENT_READ_RECEIPT = 5;  // 已读回执
+  EVENT_CONVERSATION_UPDATE = 6;  // 会话更新
+  EVENT_CONVERSATION_DELETE = 7;  // 会话删除
+  EVENT_REACTION = 8;  // 表情反应（添加/移除）
+  EVENT_PIN = 9;  // 置顶消息
+  EVENT_UNPIN = 10;  // 取消置顶
+  EVENT_MARK = 11;  // 标记消息（重要/待办等）
+  EVENT_UNMARK = 12;  // 取消标记
+  EVENT_MESSAGE_RETENTION_SCHEDULED = 13;  // retention 倒计时/到期已安排
+  EVENT_MESSAGE_RETENTION_EXPIRED = 14;  // retention 已过期，内容进入目标可见性
+  EVENT_MESSAGE_RETENTION_PURGED = 15;  // retention 已完成物理/逻辑清理
+  EVENT_CUSTOM = 16; // 自定义事件
+  EVENT_MESSAGE_PLUGIN_STATE = 17;  // 插件实体共享状态（PluginStateEvent）
+}
+
+/// 领域事件：上行/下行共用；operator_id/request_id 由连接或 metadata 注入。
+message Event {
+  string conversation_id = 1;
+  uint64 conversation_seq = 2;
+  EventType type = 3;
+  int64 created_at = 4;
+  string event_id = 5;
+  optional string request_id = 7;
+
+  oneof payload {
+    Message message = 10;
+    MessageRecallEvent recall = 11;
+    MessageEditEvent edit = 12;
+    MessageDeleteEvent delete = 13;
+    ReadReceiptEvent read = 14;
+    ConversationUpdateEvent conversation = 16;
+    ConversationDeleteEvent conversation_delete = 17;
+    ReactionEvent reaction = 20;
+    PinEvent pin = 21;
+    UnpinEvent unpin = 22;
+    MarkEvent mark = 23;
+    UnmarkEvent unmark = 24;
+    PluginStateEvent plugin_state = 25;
+    MessageRetentionScheduledEvent retention_scheduled = 30;
+    MessageRetentionExpiredEvent retention_expired = 31;
+    MessageRetentionPurgedEvent retention_purged = 32;
+    CustomEvent custom = 99;
+  }
+}
+
+message MessageRecallEvent {
+  string server_msg_id = 1;  // 被撤回消息的服务端 ID
+  string reason = 2;  // 撤回原因（可选展示）
+  optional int32 time_limit_seconds = 3;  // 允许撤回的时间窗口（秒）
+  optional bool allow_admin_recall = 4;  // 是否允许管理员撤回他人消息
+}
+
+message MessageEditEvent {
+  // 3 = 原 edit_version：服务端无法在事件发布前同步分配版本号，实际恒为 0，
+  // 编辑的新旧收敛已由 conversation_seq 承担。留空字段号防止将来被复用导致线格式错乱。
+  reserved 3;
+  reserved "edit_version";
+
+  string server_msg_id = 1;  // 被编辑消息的服务端 ID
+  MessageContent new_content = 2;  // 新内容（与 message_type 一致）
+  string reason = 4;  // 编辑原因（可选）
+  bool show_edited_mark = 5;  // 是否展示「已编辑」标记
+}
+
+message MessageDeleteEvent {
+  string server_msg_id = 1;  // 被删除消息的服务端 ID
+  optional DeleteType delete_type = 2;  // 软删/硬删
+  optional string reason = 3;  // 删除原因
+  optional bool notify_others = 4;  // 是否通知会话内其他人
+  optional DeleteScope scope = 5;  // 作用域：仅当前用户可见性 / 会话全员
+  optional string target_user_id = 6;  // 软删时指定生效用户（空表示操作者本人）
+}
+
+message MessageRetentionScheduledEvent {
+  string conversation_id = 1;
+  string server_msg_id = 2;
+  optional string reader_id = 3;
+  MessageRetentionPolicy policy = 4;
+  MessageRetentionState state = 5;
+  int64 scheduled_at = 6;
+}
+
+message MessageRetentionExpiredEvent {
+  string conversation_id = 1;
+  string server_msg_id = 2;
+  optional string reader_id = 3;
+  MessageRetentionState state = 4;
+  int64 expired_at = 5;
+}
+
+message MessageRetentionPurgedEvent {
+  string conversation_id = 1;
+  string server_msg_id = 2;
+  optional string reader_id = 3;
+  MessageRetentionState state = 4;
+  int64 purged_at = 5;
+}
+
+message ConversationUpdateEvent {
+  string conversation_id = 1;
+  string title = 2;  // 会话标题（群名等）
+  string avatar = 3;  // 会话头像 URL
+  int32 unread_count = 4;  // 未读数（可选，由服务维护）
+  // Optional participant-visible cutoff from an authenticated conversation clear.
+  optional uint64 history_cleared_through_seq = 5;
+}
+
+message ConversationDeleteEvent {
+  string conversation_id = 1;  // 被删除的会话 ID
+}
+
+/// 已读回执：多端同步后各端 last_read_seq 一致
+message ReadReceiptEvent {
+  string conversation_id = 1;
+  uint64 read_seq = 2;  // 已读到的消息 seq（含该 seq 及之前视为已读）
+  string user_id = 3;  // 已读用户
+  repeated string message_ids = 4;  // 可选：本次已读的消息 ID 列表（细粒度）
+  optional int64 read_at = 5;  // 已读时间
+}
+
+message CustomEvent {
+  string namespace = 1;  // 业务命名空间
+  string name = 2;  // 事件名
+  string version = 3;  // 事件版本标识
+  bytes payload = 4;  // 业务载荷
+  map<string, string> attributes = 5;
+}
+
+/// 表情反应事件（EVENT_REACTION）：添加或移除某条消息上的 emoji 反应
+message ReactionEvent {
+  string server_msg_id = 1;  // 被反应的消息服务端 ID
+  string user_id = 2;  // 操作用户（谁点的反应）
+  string emoji = 3;  // 表情标识（如 👍、:thumbsup:）
+  ReactionAction action = 4;  // ADD=添加，REMOVE=移除
+}
+
+/// 置顶消息事件（EVENT_PIN）：将某条消息置顶到会话
+message PinEvent {
+  string server_msg_id = 1;  // 被置顶的消息服务端 ID
+  string pinned_by = 2;  // 置顶操作者 user_id
+  optional string reason = 3;  // 置顶说明（可选展示）
+  optional int64 expire_at = 4;  // 置顶过期时间（空表示长期）
+  MessagePinScope scope = 5;  // 作用域：会话全员或仅自己
+}
+
+/// 取消置顶事件（EVENT_UNPIN）
+message UnpinEvent {
+  string server_msg_id = 1;  // 被取消置顶的消息服务端 ID
+  string unpinned_by = 2;  // 取消置顶操作者 user_id
+  MessagePinScope scope = 3;  // 作用域：会话全员或仅自己
+}
+
+/// 标记消息事件（EVENT_MARK）：重要/待办/已处理等
+message MarkEvent {
+  string server_msg_id = 1;  // 被标记的消息服务端 ID
+  string user_id = 2;  // 操作用户（标记归属用户）
+  MarkType mark_type = 3;  // 标记类型：重要/待办/已处理/自定义
+  string color = 4;  // 自定义颜色（可选，如 #FF0000）
+}
+
+/// 取消标记事件（EVENT_UNMARK）
+message UnmarkEvent {
+  string server_msg_id = 1;  // 被取消标记的消息服务端 ID
+  string user_id = 2;  // 操作用户（与 MarkEvent 一致才能取消）
+  MarkType mark_type = 3;  // 要取消的标记类型
+}
+
+/// 插件实体共享状态事件（EVENT_MESSAGE_PLUGIN_STATE）：插件为一个实体（一次投票、一个接龙）
+/// 发布的最新共享状态。Core 只在实体已绑定到该插件的卡片消息、插件仍启用时生成本事件，
+/// 分配 conversation_seq 后随事件流扩散，并随离线同步下发；同一实体的多次发布可合并为最高版本。
+/// values_json 是完整快照而不是增量：客户端按 version 单调覆盖，旧版本丢弃，同版本幂等；
+/// 本地尚无 server_msg_id 对应的消息时，和表情反应一样等消息到达后重放。
+message PluginStateEvent {
+  string server_msg_id = 1;  // 实体绑定的插件卡片消息服务端 ID
+  string plugin_id = 2;  // 发布状态的插件 ID，与卡片的插件一致
+  string entity = 3;  // 实体 ID：卡片载荷在 message-content 贡献 entityPath 处的值
+  uint64 version = 4;  // 状态版本，按 (租户, plugin_id, entity) 严格递增，1..=i64::MAX
+  string values_json = 5;  // JSON 对象：≤32 键、≤8 KiB，值为标量、字符串数组或数字数组
+}

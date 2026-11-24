@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+// 错误经 gRPC Status details 携带 ErrorDetail（code/reason/message/track）。0-999 框架预留，1000+ 业务码。
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_OK = 1;
+  ERROR_CODE_CANCELLED = 2;
+
+  ERROR_CODE_INVALID_ARGUMENT = 10;
+  ERROR_CODE_FAILED_PRECONDITION = 11;
+  ERROR_CODE_OUT_OF_RANGE = 12;
+  ERROR_CODE_UNSUPPORTED_OPERATION = 13;
+
+  ERROR_CODE_UNAUTHENTICATED = 20;
+  ERROR_CODE_PERMISSION_DENIED = 21;
+
+  ERROR_CODE_NOT_FOUND = 30;
+  ERROR_CODE_ALREADY_EXISTS = 31;
+  ERROR_CODE_CONFLICT = 32;
+  ERROR_CODE_RESOURCE_EXHAUSTED = 33;
+
+  ERROR_CODE_RATE_LIMITED = 40;
+  ERROR_CODE_SLOW_DOWN = 41;
+  ERROR_CODE_NEEDS_RETRY = 43;
+
+  ERROR_CODE_TIMEOUT = 50;
+  ERROR_CODE_UNAVAILABLE = 51;
+
+  ERROR_CODE_INTERNAL = 60;
+  ERROR_CODE_NOT_IMPLEMENTED = 62;
+
+  // 自定义错误起始（占位；实际自定义码建议直接用 ErrorDetail.code 承载 int32）
+  ERROR_CODE_CUSTOM = 1000;
+}
+
+message ErrorDetail {
+  int32 code = 1;
+  string reason = 2;
+  string message = 3;
+  string track = 4;
+}

@@ -1,0 +1,230 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+import "metadata.proto";
+import "enums.proto";  // ConversationType
+import "message_content.proto";  // MessagePreview
+
+// 会话读模型：一会话一流；列表/补丁统一 ConversationSummary；成员全量见 SYNC_KIND_CONVERSATION_PARTICIPANTS。
+
+/// 会话可见性（列表与权限）
+enum ConversationVisibility {
+  CONVERSATION_VISIBILITY_UNSPECIFIED = 0;
+  CONVERSATION_VISIBILITY_PRIVATE = 1;
+  CONVERSATION_VISIBILITY_TENANT = 2;
+  CONVERSATION_VISIBILITY_PUBLIC = 3;
+}
+
+/// 会话生命周期（归档/删除与活跃度）
+enum ConversationLifecycleState {
+  CONVERSATION_LIFECYCLE_STATE_UNSPECIFIED = 0;
+  CONVERSATION_LIFECYCLE_ACTIVE = 1;
+  CONVERSATION_LIFECYCLE_SUSPENDED = 2;
+  CONVERSATION_LIFECYCLE_ARCHIVED = 3;
+  CONVERSATION_LIFECYCLE_DELETED = 4;
+}
+
+/// 多端冲突策略（互斥/同平台互斥/共存/强制下线）
+enum ConflictResolution {
+  CONFLICT_RESOLUTION_UNSPECIFIED = 0;
+  CONFLICT_RESOLUTION_EXCLUSIVE = 1;
+  CONFLICT_RESOLUTION_PLATFORM_EXCLUSIVE = 2;
+  CONFLICT_RESOLUTION_COEXIST = 3;
+  CONFLICT_RESOLUTION_FORCE_LOGOUT = 4;
+}
+
+/// 设备在线状态（多端在线）
+enum DeviceState {
+  DEVICE_STATE_UNSPECIFIED = 0;
+  DEVICE_STATE_ONLINE = 1;
+  DEVICE_STATE_OFFLINE = 2;
+  DEVICE_STATE_CONFLICT = 3;
+}
+
+// 会话列表/增量补丁的唯一读模型。
+message ConversationSummary {
+  string conversation_id = 1;
+  string conversation_type = 2;
+  string display_name = 4;
+  string avatar_url = 5;
+  MessagePreview last_message = 6;
+  uint32 unread_count = 7;
+  uint64 max_conversation_seq = 8;
+  uint64 last_read_seq = 9;
+  bool is_muted = 10;
+  bool is_pinned = 11;
+  optional int64 mute_until = 12;
+  int64 updated_at = 13;
+  int64 created_at = 14;
+  repeated string labels = 15;
+  int32 member_count = 16;
+  string channel_id = 17;
+  /// 非单聊：成员表变更版本（opaque，客户端仅做相等比较 + 触发按需拉成员）。
+  uint64 participant_version = 18;
+  /// 非单聊：小批量预览（严禁承载全量成员）。
+  repeated ConversationParticipant member_preview = 19;
+  /// 用户级：会话归档（飞书「完成」）
+  bool is_archived = 20;
+  /// 用户级设置版本（LWW；多端同步）
+  uint64 user_settings_version = 21;
+  /// 用户级草稿（多端同步）
+  string draft = 22;
+  /// 当前用户的历史可见边界：conversation_seq <= visible_after_conversation_seq 的消息不可见。
+  uint64 visible_after_conversation_seq = 23;
+  /// Only play alerts for messages that mention the current user. Older servers omit this field.
+  optional bool is_mention_only = 24;
+  /// 大群里当前用户显式开启了「全部消息通知」（见 ConversationUserSettings.notify_all）。
+  optional bool notify_all = 25;
+  map<string, string> attributes = 50;
+}
+
+/// 当前用户在会话上的偏好设置（读写合一读模型）
+message ConversationUserSettings {
+  bool is_pinned = 1;
+  bool is_muted = 2;
+  bool is_archived = 3;
+  optional int64 mute_until = 4;
+  string draft = 5;
+  uint64 settings_version = 6;
+  // 只接收提到我的消息：其余消息照常投递（时间线不缺内容），但不产生离线推送。
+  //
+  // 与 is_muted 正交：muted 是「一条都别响」，mention_only 是「只有点名才响」。
+  // 合并成一个枚举会让老客户端的 is_muted 无处安放，所以保持两个布尔。
+  bool is_mention_only = 7;
+  // Account-wide history cutoff (inclusive). Absent on older servers.
+  optional uint64 history_cleared_through_seq = 8;
+  // 超过成员上限的大群默认只推 @我；成员在这个群里显式开启「全部消息通知」时为真，
+  // 进入该会话的通知订阅者，按会话限频的波次推送。小群不看这个字段。
+  bool notify_all = 9;
+}
+
+// 通知预览：离线推送与系统通知里显示多少消息内容。
+enum NotificationPreview {
+  NOTIFICATION_PREVIEW_UNSPECIFIED = 0;  // 按完整预览处理
+  NOTIFICATION_PREVIEW_FULL = 1;         // 发送者与内容
+  NOTIFICATION_PREVIEW_SENDER_ONLY = 2;  // 只显示发送者
+  NOTIFICATION_PREVIEW_HIDDEN = 3;       // 只显示「新消息」
+}
+
+// 同一用户有别的设备正在前台使用时，手机怎么提示。
+enum MultiDeviceAlertPolicy {
+  MULTI_DEVICE_ALERT_POLICY_UNSPECIFIED = 0;  // 按延迟处理
+  MULTI_DEVICE_ALERT_POLICY_DELAY = 1;        // 延迟一段时间，期间在别的设备上读了就不再提示
+  MULTI_DEVICE_ALERT_POLICY_IMMEDIATE = 2;    // 立即提示
+  MULTI_DEVICE_ALERT_POLICY_BADGE_ONLY = 3;   // 不提示，只更新角标
+}
+
+// 勿扰时段，按设备当地时间计算。start 等于 end 表示全天。跨零点时 end 小于 start。
+message QuietHours {
+  uint32 start_minute = 1;  // 0..1439
+  uint32 end_minute = 2;    // 0..1439
+  uint32 weekdays = 3;      // 按位：bit0 周一 … bit6 周日；0 表示每天
+  bool allow_mentions = 4;  // 点名到我的消息照常响铃
+}
+
+// 用户级通知设置，跨会话、跨设备。归核心所有（与产品无关）。
+message UserNotificationSettings {
+  optional QuietHours quiet_hours = 1;  // 缺省表示没有勿扰时段
+  NotificationPreview preview = 2;
+  MultiDeviceAlertPolicy multi_device = 3;
+  uint64 settings_version = 4;
+}
+
+message ConversationParticipant {
+  string user_id = 1;
+  repeated string roles = 2;
+  bool muted = 3;
+  bool pinned = 4;
+  map<string, string> attributes = 5;
+  int64 joined_at = 6;
+  // 该成员可见的历史下限：只能看到 conversation_seq > 此值的消息；0 = 不限。
+  //
+  // 这是**机制**不是策略：核心不关心「为什么」要设下限，只负责在读取时执行。
+  // 「新成员看不看得到入群前的消息」属业务规则，由业务层在加人时决定是否写入
+  // 当前 seq（参见 flare-social 的群历史可见性设置）。同一机制也可用于
+  // 「清空聊天记录」「按范围分享历史」等其它场景。
+  //
+  // 取负值是「从加入时刻起可见」的哨兵，由核心在写入时解析为当时的会话 seq——
+  // 业务层不必自己先查 seq 再传（省一次往返，也不会在查与写之间漏进新消息）。
+  int64 visible_from_seq = 7;
+  // 只接收提到我的消息（见 ConversationUserSettings.is_mention_only）。
+  // 放在参与者上是因为推送侧要按会话批量判定，不适合逐个查用户设置。
+  bool mention_only = 8;
+}
+
+/// 会话策略（多端冲突、历史同步、搜索/文件权限等）
+message ConversationPolicy {
+  ConflictResolution conflict_resolution = 1;
+  int32 max_devices = 2;
+  bool allow_anonymous = 3;
+  bool allow_history_sync = 4;
+  map<string, string> attributes = 5;
+  bool allow_message_search = 6;
+  bool allow_file_transfer = 7;
+}
+
+/// 设备在线视图（会话内在线状态）
+message DevicePresence {
+  string device_id = 1;
+  string device_platform = 2;
+  DeviceState state = 3;
+  optional int64 last_seen_at = 4;
+  string device_name = 5;
+  string ip_address = 6;
+}
+
+/// 会话详情（群信息/设置页；成员全量走 SYNC_KIND_CONVERSATION_PARTICIPANTS）。
+message ConversationDetail {
+  string conversation_id = 1;
+  string conversation_type = 2;
+  string display_name = 4;
+  string avatar_url = 5;
+  string description = 6;
+  string announcement = 7;
+  optional int64 announcement_updated_at = 8;
+  string announcement_updated_by = 9;
+  ConversationVisibility visibility = 10;
+  ConversationLifecycleState lifecycle_state = 11;
+  ConversationPolicy policy = 12;
+  DevicePresence presence = 14;
+  int64 created_at = 15;
+  int64 updated_at = 16;
+  int32 member_count = 17;
+  /// 持久化路由：单聊库中为空，读路径组装为对端 user_id；群/频道等为消息 channel_id（群 ID 等）
+  string channel_id = 18;
+  map<string, string> attributes = 50;
+}
+
+// 草稿 / 标签 / 搜索（通用扩展）
+
+/// 会话草稿（多端可同步）
+message ConversationDraft {
+  string conversation_id = 1;
+  string text = 2;
+  repeated string image_urls = 3;
+  string file_url = 4;
+  int64 saved_at = 5;
+  map<string, string> attributes = 50;
+}
+
+/// 会话标签（分类/筛选）
+message ConversationLabel {
+  string label_id = 1;
+  string name = 2;
+  string color = 3;
+  int64 created_at = 4;
+  int64 updated_at = 5;
+}
+
+/// 会话列表搜索/筛选条件（排序用 metadata.SortExpression，field 如 updated_at / created_at / unread_count / display_name）
+message ConversationSearchFilter {
+  string keyword = 1;
+  repeated string conversation_types = 2;
+  repeated string labels = 3;
+  bool include_archived = 4;
+  optional int64 updated_after = 5;
+  optional int64 updated_before = 6;
+  repeated FilterExpression filters = 7;  // 复用 metadata，多条件 AND
+  SortExpression sort = 8;                // 复用 metadata，避免重复枚举
+}

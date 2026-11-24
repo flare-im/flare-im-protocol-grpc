@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+import "message_content.proto";
+import "enums.proto";  // ConversationType
+
+// 消息协议。时间线/投递/已读/反应等见 event.proto 与各服务 RPC。
+
+// 消息状态（author / persistence lifecycle）。投递与已读是用户维度事件/读模型，不进入本 FSM。
+enum MessageStatus {
+  MESSAGE_STATUS_UNSPECIFIED = 0;
+  MESSAGE_STATUS_CREATED = 1; // 已创建
+  MESSAGE_STATUS_SENT = 2; // 已被服务端接受，进入持久化/分发路径
+  MESSAGE_STATUS_PERSISTED = 3; // 已持久化，可被 sync/replay 读取
+  MESSAGE_STATUS_FAILED = 4; // 发送失败
+  MESSAGE_STATUS_RECALLED = 5; // 已撤回（终态）
+  MESSAGE_STATUS_DELETED = 6; // 已删除（具体作用域见 MessageDeleteEvent）
+}
+
+// 消息来源
+enum MessageSource {
+  MESSAGE_SOURCE_UNSPECIFIED = 0;
+  MESSAGE_SOURCE_USER = 1; // 用户消息
+  MESSAGE_SOURCE_SYSTEM = 2; // 系统消息
+  MESSAGE_SOURCE_BOT = 3; // 机器人消息
+  MESSAGE_SOURCE_ADMIN = 4; // 管理员消息
+}
+
+// 消息类型枚举。Common 仅保留通用可渲染类型；业务/插件能力走 AppCardContent 或 CustomContent。
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;  // 未指定类型
+  MESSAGE_TYPE_TEXT = 1;  // 纯文本，支持 @ 提及
+  MESSAGE_TYPE_IMAGE = 2;  // 图片（含缩略图、原图）
+  MESSAGE_TYPE_VIDEO = 3;  // 视频
+  MESSAGE_TYPE_AUDIO = 4;  // 语音/音频
+  MESSAGE_TYPE_FILE = 5;  // 文件附件
+  MESSAGE_TYPE_LOCATION = 6;  // 位置/地理坐标
+  MESSAGE_TYPE_CARD = 7;  // 名片（联系人/群）
+  MESSAGE_TYPE_STICKER = 8;  // 表情贴纸
+  MESSAGE_TYPE_EMOJI = 9;  // 表情符号
+  MESSAGE_TYPE_LINK_CARD = 10;  // 链接预览卡片
+  MESSAGE_TYPE_FORWARD = 11;  // 单条/合并转发消息
+  MESSAGE_TYPE_THREAD = 12;  // 话题/子线程根消息
+  MESSAGE_TYPE_QUOTE = 13;  // 引用回复
+  MESSAGE_TYPE_APP_CARD = 14;  // 通用应用卡片
+  MESSAGE_TYPE_RICH_TEXT = 15;  // 富文本：Rich Doc 主存储（Markdown/HTML/编辑器均归一化为此）
+  MESSAGE_TYPE_IMAGE_GROUP = 16;  // 多图/图组
+  MESSAGE_TYPE_SYSTEM = 17;  // 通用系统消息：入群/退群/踢人/解散等由 SystemContent.event_kind 区分
+  MESSAGE_TYPE_NOTIFICATION = 18;  // 会话内通知：可推送、角标
+  MESSAGE_TYPE_CUSTOM = 19;  // 业务自定义：CustomContent.type + payload，如红包、转账、打卡等
+  MESSAGE_TYPE_PLACEHOLDER = 20;  // 加密/解密失败/导入/迁移等占位展示
+}
+
+enum DiffusionStrategy {
+  DIFFUSION_STRATEGY_UNSPECIFIED = 0;  // 未指定
+  DIFFUSION_STRATEGY_READ = 1;  // 读扩散（一会话一流，当前唯一策略）
+}
+
+enum RetentionMode {
+  RETENTION_MODE_UNSPECIFIED = 0;
+  RETENTION_MODE_NONE = 1;
+  RETENTION_MODE_TIME_TO_LIVE = 2;
+  RETENTION_MODE_AFTER_READ = 3;
+  RETENTION_MODE_ON_DEMAND = 4;
+}
+
+enum RetentionTrigger {
+  RETENTION_TRIGGER_UNSPECIFIED = 0;
+  RETENTION_TRIGGER_NONE = 1;
+  RETENTION_TRIGGER_AFTER_CREATE = 2;
+  RETENTION_TRIGGER_AFTER_READ = 3;
+  RETENTION_TRIGGER_AT_ABSOLUTE_TIME = 4;
+  RETENTION_TRIGGER_MANUAL = 5;
+}
+
+enum ContentVisibility {
+  CONTENT_VISIBILITY_UNSPECIFIED = 0;
+  CONTENT_VISIBILITY_AVAILABLE = 1;
+  CONTENT_VISIBILITY_HIDDEN = 2;
+  CONTENT_VISIBILITY_REDACTED = 3;
+  CONTENT_VISIBILITY_PURGED = 4;
+}
+
+enum MessageRetentionLifecycle {
+  MESSAGE_RETENTION_LIFECYCLE_UNSPECIFIED = 0;
+  MESSAGE_RETENTION_LIFECYCLE_NONE = 1;
+  MESSAGE_RETENTION_LIFECYCLE_ACTIVE = 2;
+  MESSAGE_RETENTION_LIFECYCLE_SCHEDULED = 3;
+  MESSAGE_RETENTION_LIFECYCLE_EXPIRED = 4;
+  MESSAGE_RETENTION_LIFECYCLE_PURGED = 5;
+}
+
+message MessageRetentionPolicy {
+  RetentionMode mode = 1;
+  RetentionTrigger trigger = 2;
+  optional int64 expire_after_seconds = 3;
+  optional int64 expire_at = 4;
+  ContentVisibility visibility_after_expiration = 5;
+  map<string, string> attributes = 50;
+}
+
+message MessageRetentionState {
+  MessageRetentionLifecycle lifecycle = 1;
+  ContentVisibility content_visibility = 2;
+  optional int64 first_triggered_at = 3;
+  optional int64 expire_at = 4;
+  optional int64 expired_at = 5;
+  optional int64 purged_at = 6;
+  optional string triggered_by_user_id = 7;
+}
+
+// MessagePreview 见 message_content.proto。
+
+message Message {
+  string server_id = 1;  // 服务端消息 ID（全局唯一）
+  string conversation_id = 2;  // 会话 ID
+  string client_msg_id = 3;  // 客户端消息 ID（去重幂等）
+  string sender_id = 4;  // 发送者 ID
+  MessageSource source = 5;  // 消息来源（用户/系统/机器人/管理员）
+  uint64 conversation_seq = 6;  // 会话内持久化 replay 序列号
+  int64 created_at = 7;  // 创建时间，Unix epoch millis
+  ConversationType conversation_type = 8; // 会话类型（单聊/群聊/频道）
+  MessageType message_type = 9;  // 消息类型（与 content 解析方式对应）
+  optional uint64 message_seq = 10;  // 仅消息创建记录拥有的排序辅助序列，可相对 conversation_seq 有空洞
+  string channel_id = 12;  // 会话频道 ID：单聊=对方 user_id，群聊=群 ID，频道/话题=对应 ID
+  string sender_name = 13;  // 发送者昵称（展示用，可选）
+  string sender_avatar = 14;  // 发送者头像 URL（展示用，可选）
+  optional string thread_id = 15;  // 话题/线程根消息 ID；普通消息为空，话题回复必须使用本 typed field，不得写入 attributes
+  MessageContent content = 20;  // 强类型消息体（与 message_type 一致）
+  MessageStatus status = 30;  // 消息状态（含已撤回等，见 MessageStatus）
+  uint64 last_edit_seq = 31; // 服务端生成：当前正文最后一次编辑的会话序列，发送入口忽略客户端提供值
+  repeated MessageReactionState reaction_states = 32; // 服务端权威的逐用户/表情版本，含已移除状态
+  MessageRetentionPolicy retention_policy = 40;  // 保留/过期策略
+  MessageRetentionState retention_state = 41;  // 保留/过期生命周期
+  optional OfflinePushInfo offline_push_info = 61;  // 离线推送展示（可选）
+  map<string, string> attributes = 23;  // 非稳定扩展键值；核心语义必须使用 typed fields
+  map<string, bytes> extensions = 1000;  // 业务扩展（key 建议命名空间，如 biz.xxx）
+}
+
+message MessageReactionState {
+  string user_id = 1;
+  string emoji = 2;
+  uint64 event_seq = 3;
+  bool active = 4;
+}
+
+// 下行
+/// 推送消息和通知
+message MessagePush {
+  repeated Message messages = 1;       // 消息
+  repeated Message notifications = 2; // 通知
+}
+
+// 离线推送展示（可选）
+message OfflinePushInfo {
+  string title = 1;  // 推送标题
+  string body = 2;  // 推送正文/摘要
+  string sound = 3;  // 音效（如 iOS sound）
+  bool badge = 4;  // 是否角标 +1
+  string payload = 5;  // 自定义载荷（跳转参数等）
+}
+
+// 消息时间线（持久化/投递/已读等，SendMessageResponse 等按需返回）
+message MessageTimeline {
+  int64 created_at = 1;    // 创建时间
+  optional int64 persisted_at = 2;  // 持久化完成时间
+  optional int64 delivered_at = 3;  // 投递时间
+  optional int64 read_at = 4;       // 已读时间
+}
+
+// 单条已读记录（GetReadReceipts / 已读列表查询）
+message MessageReadRecord {
+  string user_id = 1;                          // 已读用户 ID
+  int64 read_at = 2;       // 已读时间
+  optional int64 retention_expired_at = 3;  // 内容因 retention 过期的时间（可选）
+}

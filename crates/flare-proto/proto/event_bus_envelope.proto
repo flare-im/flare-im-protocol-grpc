@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package flare.common.v1;
+
+// 服务间 Event Bus 信封（非客户端协议）。partition_key 建议 conversation_id；勿与 PushEnvelope 混用。
+
+message EventBusEnvelope {
+  // 全局唯一事件 ID
+  string event_id = 1;
+
+  // 事件类型（如 "message.created" / "conversation.updated"）
+  string event_type = 2;
+
+  // 分区键（同 key 内有序）
+  string partition_key = 3;
+
+  // 流内序号
+  uint64 seq = 4;
+
+  // 业务载荷（bytes）
+  bytes payload = 5;
+
+  // 事件发生时间（Unix epoch millis）
+  int64 occurred_at = 6;
+
+  // 可选：来源服务标识
+  string source = 7;
+}

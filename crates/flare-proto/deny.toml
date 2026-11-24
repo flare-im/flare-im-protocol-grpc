@@ -1,0 +1,58 @@
+# cargo-deny 配置 —— 依赖的许可 / 来源 / 重复版本治理
+#
+# 首次在 CI 跑起来时大概率会报出若干条目需要逐一裁决（新增许可类型、
+# 重复版本等）。CI 中该 job 设了 continue-on-error，先观察再收紧，
+# 不要一上来就阻断 PR。
+
+[graph]
+all-features = false
+
+[licenses]
+# 本项目自身为 Apache-2.0。依赖只接受宽松许可——
+# copyleft（GPL/AGPL/LGPL）会传染到分发物，商业授权下不可接受。
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MITNFA",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "OpenSSL",
+    # Mozilla CA 根证书库（webpki-roots / webpki-root-certs）用的是**数据**许可，
+    # 纯宽松、无 copyleft、无源码义务，是 rustls 技术栈的普遍构成。
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+# 例外按 crate 逐个开，不整体放行某个协议——这样将来**新**引入一个 MPL 依赖
+# 仍会让门禁变红，而不是被这条悄悄带过。
+[[licenses.exceptions]]
+# option-ext（MPL-2.0，文件级弱 copyleft）只出现在编译期：
+#   option-ext ← dirs ← shellexpand ← rust-embed-impl（proc-macro）
+# 过程宏不进入分发的二进制，而 MPL 的义务附着于分发物，故与分发无关。
+# 即便进了二进制，MPL-2.0 的义务也只及于对 MPL 文件本身的修改，不传染自有代码。
+name = "option-ext"
+allow = ["MPL-2.0"]
+
+[bans]
+# 重复版本先给 warn。收紧成 deny 之前要先把现存的重复依赖清理干净，
+# 否则会阻断所有 PR。
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+# 只允许 crates.io。git 依赖绕过 registry 的审计与 yank 机制，
+# 出现时必须显式加进 allow-git 并说明理由。
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+# 已知漏洞一律拒绝。若某条确实不影响本项目用法，
+# 在此列出 ID 并写明豁免理由，不要整体关掉检查。
+ignore = []

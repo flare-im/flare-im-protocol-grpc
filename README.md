@@ -145,3 +145,5 @@ Inquiries: `flare1522@163.com`
 ## Coordinated Changes
 
 Land wire-level changes in [flare-protocol](https://github.com/flare-im/flare-protocol) first. Then regenerate gRPC bindings and verify the affected server and SDK callers.
+
+The independent [`flare-proto`](crates/flare-proto) crate publishes the shared Rust model types. Its `proto-source-revision` pins a snapshot from `flare-protocol`. Run `python3 scripts/sync-common-proto.py --revision <commit>` to refresh it after a schema change. CI compares the packaged snapshot to the pinned commit.

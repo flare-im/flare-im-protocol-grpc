@@ -11,6 +11,29 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  common-bindings:
+    name: Shared Rust protobuf bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Verify the pinned common Protobuf snapshot
+        run: |
+          set -euo pipefail
+          source=$(mktemp -d)
+          git -C "$source" init -q
+          pin=$(cat crates/flare-proto/proto-source-revision)
+          git -C "$source" fetch --depth 1 https://github.com/flare-im/flare-protocol.git "$pin"
+          python3 scripts/sync-common-proto.py --source "$source" --check
+      - run: cargo fmt --manifest-path crates/flare-proto/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path crates/flare-proto/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path crates/flare-proto/Cargo.toml
+      - run: cargo package --manifest-path crates/flare-proto/Cargo.toml
+
   check:
     name: fmt / clippy / test
     runs-on: ubuntu-latest
